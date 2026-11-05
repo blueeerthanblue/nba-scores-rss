@@ -19,6 +19,7 @@ FAVORITES = {
     "LAL": 1,  # Los Angeles Lakers - Second
 }
 
+
 def get_text(value, default=""):
     return str(value) if value is not None else default
 
@@ -36,9 +37,11 @@ def get_priority(event):
         for c in competitors
     }
 
-    for team in ("PHI", "LAL"):
-        if team in abbreviations:
-            return FAVORITES[team]
+    if "PHI" in abbreviations:
+        return 0
+
+    if "LAL" in abbreviations:
+        return 1
 
     return 2
 
@@ -55,24 +58,34 @@ def main():
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
 
-    ET.SubElement(channel, "title").text = "NBA Scores - Favorite Teams First"
-    ET.SubElement(channel, "link").text = "https://www.espn.com/nba/scoreboard"
-    ET.SubElement(channel, "description").text = (
-        "NBA scores prioritized: Philadelphia 76ers, "
-        "Los Angeles Lakers, followed by all other teams."
+    ET.SubElement(channel, "title").text = (
+        "NBA Scores - 76ers and Lakers First"
     )
+
+    ET.SubElement(channel, "link").text = (
+        "https://www.espn.com/nba/scoreboard"
+    )
+
+    ET.SubElement(channel, "description").text = (
+        "NBA scores prioritized: Philadelphia 76ers first, "
+        "Los Angeles Lakers second, followed by all other teams."
+    )
+
     ET.SubElement(channel, "language").text = "en-us"
 
+    feed_build_time = datetime.now(timezone.utc)
+
     ET.SubElement(channel, "lastBuildDate").text = (
-        format_datetime(datetime.now(timezone.utc))
+        format_datetime(feed_build_time)
     )
 
     events = data.get("events", [])
 
-    # Sort: 76ers first, Lakers second, all others afterward.
+    # Sort games: 76ers first, Lakers second, all others afterward.
     events.sort(key=get_priority)
 
-    for event in events:
+    for index, event in enumerate(events):
+
         competitions = event.get("competitions", [])
 
         if not competitions:
@@ -113,6 +126,7 @@ def main():
 
         if status.get("state") == "in":
             status_name = status.get("shortDetail") or "Live"
+
         elif status.get("completed"):
             status_name = "Final"
 
@@ -132,7 +146,8 @@ def main():
 
         description = (
             f"{away_team} {away_score} at {home_team} "
-            f"{home_score}. Status: {status_name}."
+            f"{home_score}. Status: {status_name}. "
+            f"Game date: {event.get('date', 'Unknown')}."
         )
 
         item = ET.SubElement(channel, "item")
@@ -141,7 +156,8 @@ def main():
         ET.SubElement(item, "description").text = description
 
         ET.SubElement(item, "link").text = (
-            f"https://www.espn.com/nba/game/_/gameId/{event.get('id', '')}"
+            f"https://www.espn.com/nba/game/_/gameId/"
+            f"{event.get('id', '')}"
         )
 
         ET.SubElement(
@@ -152,19 +168,16 @@ def main():
             f"{away_score}-{home_score}-{status_name}"
         )
 
-        date_text = event.get("date", "")
+        # Artificial publication date to prioritize favorite teams.
+        # First item gets the newest date, followed by subsequent items.
+        item_date = datetime.fromtimestamp(
+            feed_build_time.timestamp() - index,
+            timezone.utc
+        )
 
-        if date_text:
-            try:
-                dt = datetime.fromisoformat(
-                    date_text.replace("Z", "+00:00")
-                )
-
-                ET.SubElement(item, "pubDate").text = (
-                    format_datetime(dt)
-                )
-            except ValueError:
-                pass
+        ET.SubElement(item, "pubDate").text = (
+            format_datetime(item_date)
+        )
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
